@@ -1,0 +1,12 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+env/
+.venv/
+build/
+dist/
+artifacts/
+*.spec.bak
+assets/icon.ico
+assets/icon.icns
+legacy/original/*.mp3

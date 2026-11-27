@@ -1,0 +1,79 @@
+name: Build desktop releases
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            target: macos-intel
+          - runner: macos-15
+            target: macos-apple-silicon
+          - runner: ubuntu-22.04
+            target: linux-x86_64
+          - runner: windows-2025
+            target: windows-x86_64
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install build dependencies
+        run: python -m pip install -r requirements-build.txt
+      - name: Generate music and app icons
+        run: python scripts/make_assets.py
+      - name: Build desktop application
+        run: python -m PyInstaller --clean --noconfirm app.spec
+      - name: Package release archive
+        run: python scripts/package_release.py "${{ matrix.target }}"
+      - name: Upload release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: artifacts/MentalMathTrainer-${{ matrix.target }}.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release notes
+        uses: actions/checkout@v4
+      - name: Download platform builds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Create release and attach builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" release-assets/*.zip --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" release-assets/*.zip \
+              --verify-tag \
+              --title "Mental Math Trainer ${GITHUB_REF_NAME}" \
+              --notes-file .github/RELEASE_NOTES.md
+          fi
