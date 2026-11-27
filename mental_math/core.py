@@ -39,7 +39,7 @@ CURRICULUM = (
     Topic("tables", "Multiplication tables · 1–10", "Multiplication and inverse division facts", 7),
     Topic("beyond_tables", "Beyond tables · within 100", "Distributive multiplication and exact division", 8),
     Topic("thousands", "Larger numbers · within 1,000", "Place value and multi-step arithmetic", 9),
-    Topic("shortcuts", "Shortcuts · applied arithmetic", "Percentages, fractions, decimals and mental shortcuts", 10),
+    Topic("shortcuts", "Shortcuts · applied arithmetic", "Multiplication shortcuts, squares, percentages, fractions, and decimals", 10),
 )
 
 
@@ -85,11 +85,23 @@ def make_topic_question(topic_id: str, band: int = 0) -> Question:
         elif op == "×": a, b = random.randint(10, 99), random.choice((10, 100))
         else: b = random.choice((10, 100)); a = b * random.randint(10, 99)
     elif topic_id == "shortcuts":
-        op = random.choice(("×", "+", "−"))
-        if op == "×": a, b = random.choice((15, 25, 35, 45, 55, 65, 75, 85, 95)), 2
-        elif op == "+":
-            a = random.randint(10, 80); b = random.randint(10, 99-a)
-        else: a, b = random.randint(20, 99), random.randint(2, 19)
+        kind = random.choice(("shortcut", "square", "percent", "fraction", "decimal"))
+        if kind == "shortcut":
+            a, b = random.randint(2, 20 + band * 20), random.choice((5, 9, 11, 25))
+            return Question(f"{a} × {b} = ?", a * b, "hint_normal")
+        if kind == "square":
+            a = random.randint(2, 9) * 10 + 5
+            return Question(f"{a}² = ?", a * a, "hint_normal")
+        if kind == "percent":
+            percent = random.choice((10, 25, 50, 75))
+            whole = random.randint(1, 20 + band * 20) * 4
+            return Question(f"{percent}% of {whole} = ?", whole * percent // 100, "hint_normal")
+        if kind == "fraction":
+            numerator, denominator = random.choice(((1, 2), (1, 4), (3, 4)))
+            whole = random.randint(2, 20 + band * 10) * denominator
+            return Question(f"{numerator}/{denominator} of {whole} = ?", whole * numerator // denominator, "hint_normal")
+        whole = random.randint(1, 9 + band * 5)
+        return Question(f"{whole}.5 + 0.5 = ?", whole + 1, "hint_normal")
     else:
         raise ValueError(f"Unknown curriculum topic: {topic_id}")
     result = a+b if op == "+" else a-b if op == "−" else a*b if op == "×" else a//b
