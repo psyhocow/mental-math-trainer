@@ -5,8 +5,8 @@ import tkinter as tk
 from tkinter import ttk
 
 from .audio import AudioManager
-from .core import make_formula_question, make_question, tutorial_questions
-from .storage import load_settings, load_stats, record_session, save_settings
+from .core import CURRICULUM, make_formula_question, make_question, make_topic_question, tutorial_questions
+from .storage import load_settings, load_stats, record_session, save_curriculum, save_settings
 
 
 COLORS = {
@@ -81,6 +81,9 @@ TEXT = {
         "music_unavailable": "Audio could not start. Check that this device has an available audio output.",
         "music_ready": "Preference saved.", "music_off": "Background music is off.", "language_desc": "Choose the interface language.",
         "easy_tag": "FOUNDATIONS", "normal_tag": "STEADY PACE", "hard_tag": "DEEP FOCUS",
+        "choose_level": "Your level adjusts as you practice", "adaptive_desc": "Start at your current topic. The trainer adjusts question difficulty from your recent accuracy and pace.",
+        "mastery_progress": "Topic {current} of {total} · {count} of 20 answers", "mastered_next": "Topic mastered. Your next topic is {topic}.",
+        "keep_practicing": "Keep practicing this topic. Aim for at least 90% accuracy and under 3 seconds per answer.", "path_complete": "You completed every topic in the learning path.",
     },
     "Russian": {
         "app_name": "Тренажёр устного счёта", "brand_note": "IT STEP ACADEMY · ЛИЧНЫЙ ПРОЕКТ",
@@ -340,13 +343,10 @@ class MentalMathApp(tk.Tk):
         quick.grid(row=0, column=0, sticky="nsew", padx=(0, 9))
         ttk.Label(quick, text=self.t("quick_start"), style="Section.TLabel").pack(anchor="w")
         ttk.Label(quick, text=self.t("choose_level"), style="CardMuted.TLabel").pack(anchor="w", pady=(12, 5))
-        labels = {level: self.t(level) for level in ("easy", "normal", "hard")}
-        self.difficulty_display = tk.StringVar(value=labels[self.selected_difficulty])
-        level_select = ttk.Combobox(quick, textvariable=self.difficulty_display, values=tuple(labels.values()), state="readonly", width=22)
-        level_select.pack(anchor="w", fill="x")
-        level_select.bind("<<ComboboxSelected>>", lambda _event: self._select_difficulty(level_select.get()))
-        self.level_description = ttk.Label(quick, text=self.t(f"{self.selected_difficulty}_desc"), style="CardMuted.TLabel", wraplength=420)
-        self.level_description.pack(anchor="w", pady=(7, 12))
+        topic_id = self.stats.get("curriculum_topic", CURRICULUM[0].id)
+        current = next((item for item in CURRICULUM if item.id == topic_id), CURRICULUM[0])
+        ttk.Label(quick, text=f"{current.stage}. {current.title}", style="Card.TLabel", font=("TkDefaultFont", 12, "bold")).pack(anchor="w", pady=(4, 3))
+        ttk.Label(quick, text=f"{current.description}\n{self.t('adaptive_desc')}", style="CardMuted.TLabel", wraplength=420).pack(anchor="w", pady=(2, 12))
         ttk.Button(quick, text=self.t("start_practice"), style="Accent.TButton", command=self._start_practice).pack(anchor="w")
 
         records = ttk.Frame(columns, style="Card.TFrame", padding=19)
@@ -392,7 +392,14 @@ class MentalMathApp(tk.Tk):
     def _start_practice(self) -> None:
         self.correct = 0
         self.wrong = 0
-        self.question = make_question(self.selected_difficulty)
+        self.selected_difficulty = "curriculum"
+        self.active_topic = next((item for item in CURRICULUM if item.id == self.stats.get("curriculum_topic")), CURRICULUM[0])
+        self.topic_answer_times = []
+        self.topic_outcomes = []
+        self.topic_started = time.monotonic()
+        self.question_started = self.topic_started
+        self.adaptive_band = 0
+        self.question = make_topic_question(self.active_topic.id, self.adaptive_band)
         self.session_started = time.monotonic()
         self.session_active = True
         self.screen = "practice"
@@ -418,6 +425,8 @@ class MentalMathApp(tk.Tk):
         card.pack(fill="both", expand=True)
         score_row = ttk.Frame(card, style="Card.TFrame")
         score_row.pack(fill="x")
+        if self.selected_difficulty == "curriculum":
+            ttk.Label(card, text=f"{self.active_topic.stage}. {self.active_topic.title} · {self.t('mastery_progress', current=self.active_topic.stage, total=len(CURRICULUM), count=self.correct+self.wrong)}", style="CardMuted.TLabel").pack(anchor="w", pady=(10, 0))
         ttk.Label(score_row, text=f"{self.t('score')}  {self.correct}", style="Card.TLabel", font=("TkDefaultFont", 11, "bold")).pack(side="left")
         ttk.Label(score_row, text=f"{self.t('mistakes')}  {self.wrong}", style="CardMuted.TLabel").pack(side="right")
 
@@ -448,7 +457,7 @@ class MentalMathApp(tk.Tk):
         ttk.Button(parent, text=self.t("finish"), style="Nav.TButton", command=self._finish_practice).pack(anchor="e", pady=(11, 0))
 
     def _tick_clock(self) -> None:
-        if not self.session_active or self.screen != "practice" or self.selected_difficulty == "hard":
+        if not self.session_active or self.screen != "practice" or self.selected_difficulty in ("hard", "curriculum"):
             return
         limit = 60 if self.selected_difficulty == "easy" else 45
         elapsed = time.monotonic() - self.session_started
@@ -472,16 +481,28 @@ class MentalMathApp(tk.Tk):
             return "break"
         if answer == self.question.answer:
             self.correct += 1
+            if self.selected_difficulty == "curriculum": self.topic_outcomes.append(True)
             self.feedback.config(text=self.t("right_feedback"), foreground=COLORS["success"])
         else:
             self.wrong += 1
+            if self.selected_difficulty == "curriculum": self.topic_outcomes.append(False)
             self.feedback.config(text=self.t("wrong_feedback", answer=self.question.answer), foreground=COLORS["error"])
             self._mistake_feedback()
+        if self.selected_difficulty == "curriculum":
+            self.topic_answer_times.append(time.monotonic() - self.question_started)
+            recent = self.topic_answer_times[-5:]
+            recent_accuracy = sum(self.topic_outcomes[-5:]) / len(self.topic_outcomes[-5:]) if self.topic_outcomes else 0
+            recent_speed = sum(recent) / len(recent) if recent else 0
+            if len(recent) >= 5:
+                if recent_accuracy >= .8 and recent_speed < 3:
+                    self.adaptive_band = min(2, self.adaptive_band + 1)
+                elif recent_accuracy < .6 or recent_speed > 5:
+                    self.adaptive_band = max(0, self.adaptive_band - 1)
         self.answer_locked = True
         self.submit_button.state(["disabled"])
         self.answer_entry.state(["disabled"])
         self._update_session_counts()
-        self.advance_job = self.after(620, self._next_practice_question)
+        self.advance_job = self.after(620, self._finish_practice if self.selected_difficulty == "curriculum" and self.correct + self.wrong >= 20 else self._next_practice_question)
         return "break"
 
     def _update_session_counts(self) -> None:
@@ -498,7 +519,8 @@ class MentalMathApp(tk.Tk):
         self.advance_job = None
         if not self.session_active or self.screen != "practice":
             return
-        self.question = make_question(self.selected_difficulty)
+        self.question = make_topic_question(self.active_topic.id, self.adaptive_band) if self.selected_difficulty == "curriculum" else make_question(self.selected_difficulty)
+        self.question_started = time.monotonic()
         self.answer_locked = False
         self.question_label.config(text=self.question.prompt)
         self.answer_var.set("")
@@ -520,6 +542,21 @@ class MentalMathApp(tk.Tk):
     def _finish_practice(self) -> None:
         if not self.session_active:
             return
+        if self.selected_difficulty == "curriculum":
+            total = self.correct + self.wrong
+            accuracy = self.correct / total if total else 0
+            average = sum(self.topic_answer_times) / len(self.topic_answer_times) if self.topic_answer_times else float("inf")
+            mastered = total >= 20 and accuracy >= .9 and average < 3
+            mastered_topics = list(self.stats.get("mastered_topics", []))
+            topic_index = next(i for i, item in enumerate(CURRICULUM) if item.id == self.active_topic.id)
+            if mastered and self.active_topic.id not in mastered_topics:
+                mastered_topics.append(self.active_topic.id)
+            next_topic = CURRICULUM[topic_index + 1] if mastered and topic_index + 1 < len(CURRICULUM) else self.active_topic
+            records = dict(self.stats.get("topic_records", {}))
+            records[self.active_topic.id] = {"correct": self.correct, "total": total, "accuracy": accuracy, "average_seconds": average if average != float("inf") else None}
+            self.stats = save_curriculum(next_topic.id, mastered_topics, records)
+            self.result = {"curriculum": True, "mastered": mastered, "next_topic": next_topic.title, "complete": mastered and topic_index + 1 >= len(CURRICULUM), "score": self.correct}
+            self._stop_session(); self.screen = "results"; self._render(); return
         self._finish_round(self.selected_difficulty, tutorial=False)
 
     def _start_fsu(self) -> None:
@@ -777,10 +814,21 @@ class MentalMathApp(tk.Tk):
         ttk.Label(card, text=str(self.result.get("score", 0)), style="Score.TLabel").pack(anchor="center", pady=(1, 8))
         if self.result.get("new_record"):
             ttk.Label(card, text=self.t("new_record"), style="CardKicker.TLabel").pack(anchor="center", pady=(0, 5))
-        ttk.Label(card, text=f"{self.t('record_label')}: {self.result.get('best', 0)}", style="CardMuted.TLabel").pack(anchor="center")
+        if self.result.get("curriculum"):
+            if self.result.get("complete"):
+                status = self.t("path_complete")
+            elif self.result.get("mastered"):
+                status = self.t("mastered_next", topic=self.result.get("next_topic", ""))
+            else:
+                status = self.t("keep_practicing")
+            ttk.Label(card, text=status, style="CardMuted.TLabel", wraplength=580, justify="center").pack(anchor="center", pady=(5, 0))
+        else:
+            ttk.Label(card, text=f"{self.t('record_label')}: {self.result.get('best', 0)}", style="CardMuted.TLabel").pack(anchor="center")
         actions = ttk.Frame(card, style="Card.TFrame")
         actions.pack(anchor="center", pady=(25, 0))
-        if self.result.get("tutorial"):
+        if self.result.get("curriculum"):
+            ttk.Button(actions, text=self.t("start_practice"), style="Accent.TButton", command=self._start_practice).pack(side="left", padx=5)
+        elif self.result.get("tutorial"):
             ttk.Button(actions, text=self.t("open_tutorial"), style="Accent.TButton", command=self._begin_tutorial).pack(side="left", padx=5)
         elif self.result.get("level") == "fsu":
             ttk.Button(actions, text=self.t("start_fsu"), style="Accent.TButton", command=self._start_fsu).pack(side="left", padx=5)
