@@ -74,6 +74,9 @@ def load_stats() -> dict:
         "best_scores": {str(key): nonnegative_int(value) for key, value in bests.items()},
         "games_played": nonnegative_int(stats.get("games_played", 0)),
         "correct_total": nonnegative_int(stats.get("correct_total", 0)),
+        "curriculum_topic": str(stats.get("curriculum_topic", "bonds_10")),
+        "mastered_topics": [str(item) for item in stats.get("mastered_topics", []) if isinstance(item, str)],
+        "topic_records": stats.get("topic_records", {}) if isinstance(stats.get("topic_records", {}), dict) else {},
     }
 
 
@@ -86,3 +89,13 @@ def record_session(level: str, score: int) -> dict:
     stats["correct_total"] += score
     _write_json("records.json", stats)
     return stats
+
+
+def save_curriculum(topic_id: str, mastered_topics: list[str], topic_records: dict) -> dict:
+    """Persist the learner's automatic curriculum position and mastery data."""
+    stats = load_stats()
+    stats["curriculum_topic"] = topic_id
+    stats["mastered_topics"] = list(dict.fromkeys(mastered_topics))
+    stats["topic_records"] = topic_records
+    _write_json("records.json", stats)
+    return load_stats()
