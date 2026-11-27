@@ -18,12 +18,13 @@ This project remasters a mental arithmetic trainer created for my IT Step Academ
 
 ## Features
 
-- **Three practice levels:** Easy and Normal have a visible countdown; Hard gives you untimed focus with larger calculations.
+- **Adaptive ordered curriculum:** learners start at their saved topic; question difficulty adjusts from recent accuracy and speed, and the next topic unlocks automatically after a mastery check.
+- **Ten curriculum topics:** number bonds, teen numbers with and without regrouping, round tens, two-digit addition and subtraction, multiplication tables, larger arithmetic, and mental shortcuts.
 - **A guided beginner lesson:** six simple questions introduce counting on, making ten, subtraction through ten, multiplication, and division.
 - **FSU formula practice:** quick rounds on the square of a sum, square of a difference, and difference of squares.
 - **Two helpful guides:** an FSU walkthrough and practical mental arithmetic strategies for all four operations.
 - **Personal settings:** choose English, Russian, or Kazakh, enable desktop mistake feedback, toggle FSU hints, and switch the original background music on or off.
-- **Private local records:** scores and preferences stay in your operating system's user data folder.
+- **Private local records:** scores, curriculum position, mastery, and preferences stay in your operating system's user data folder.
 - **Cross-platform desktop builds:** release archives are built for Windows x86_64, macOS Intel, macOS Apple Silicon, and Linux x86_64.
 
 ## Get the app
