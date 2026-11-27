@@ -396,10 +396,11 @@ class MentalMathApp(tk.Tk):
         self.active_topic = next((item for item in CURRICULUM if item.id == self.stats.get("curriculum_topic")), CURRICULUM[0])
         self.topic_answer_times = []
         self.topic_outcomes = []
+        self.seen_topic_questions = set()
         self.topic_started = time.monotonic()
         self.question_started = self.topic_started
         self.adaptive_band = 0
-        self.question = make_topic_question(self.active_topic.id, self.adaptive_band)
+        self.question = self._new_curriculum_question()
         self.session_started = time.monotonic()
         self.session_active = True
         self.screen = "practice"
@@ -426,7 +427,8 @@ class MentalMathApp(tk.Tk):
         score_row = ttk.Frame(card, style="Card.TFrame")
         score_row.pack(fill="x")
         if self.selected_difficulty == "curriculum":
-            ttk.Label(card, text=f"{self.active_topic.stage}. {self.active_topic.title} · {self.t('mastery_progress', current=self.active_topic.stage, total=len(CURRICULUM), count=self.correct+self.wrong)}", style="CardMuted.TLabel").pack(anchor="w", pady=(10, 0))
+            self.topic_progress_label = ttk.Label(card, text=f"{self.active_topic.stage}. {self.active_topic.title} · {self.t('mastery_progress', current=self.active_topic.stage, total=len(CURRICULUM), count=self.correct+self.wrong)}", style="CardMuted.TLabel")
+            self.topic_progress_label.pack(anchor="w", pady=(10, 0))
         ttk.Label(score_row, text=f"{self.t('score')}  {self.correct}", style="Card.TLabel", font=("TkDefaultFont", 11, "bold")).pack(side="left")
         ttk.Label(score_row, text=f"{self.t('mistakes')}  {self.wrong}", style="CardMuted.TLabel").pack(side="right")
 
@@ -505,7 +507,19 @@ class MentalMathApp(tk.Tk):
         self.advance_job = self.after(620, self._finish_practice if self.selected_difficulty == "curriculum" and self.correct + self.wrong >= 20 else self._next_practice_question)
         return "break"
 
+    def _new_curriculum_question(self):
+        """Generate a fresh prompt for this topic run, avoiding repeats."""
+        for _ in range(100):
+            question = make_topic_question(self.active_topic.id, self.adaptive_band)
+            if question.prompt not in self.seen_topic_questions:
+                self.seen_topic_questions.add(question.prompt)
+                return question
+        return question
+
     def _update_session_counts(self) -> None:
+        if self.selected_difficulty == "curriculum" and hasattr(self, "topic_progress_label") and self.topic_progress_label.winfo_exists():
+            count = self.correct + self.wrong
+            self.topic_progress_label.config(text=f"{self.active_topic.stage}. {self.active_topic.title} · {self.t('mastery_progress', current=self.active_topic.stage, total=len(CURRICULUM), count=count)}")
         if hasattr(self, "question_label") and self.question_label.winfo_exists():
             for child in self.question_label.master.winfo_children():
                 if isinstance(child, ttk.Frame) and child.winfo_children():
@@ -519,7 +533,7 @@ class MentalMathApp(tk.Tk):
         self.advance_job = None
         if not self.session_active or self.screen != "practice":
             return
-        self.question = make_topic_question(self.active_topic.id, self.adaptive_band) if self.selected_difficulty == "curriculum" else make_question(self.selected_difficulty)
+        self.question = self._new_curriculum_question() if self.selected_difficulty == "curriculum" else make_question(self.selected_difficulty)
         self.question_started = time.monotonic()
         self.answer_locked = False
         self.question_label.config(text=self.question.prompt)
@@ -554,6 +568,7 @@ class MentalMathApp(tk.Tk):
             next_topic = CURRICULUM[topic_index + 1] if mastered and topic_index + 1 < len(CURRICULUM) else self.active_topic
             records = dict(self.stats.get("topic_records", {}))
             records[self.active_topic.id] = {"correct": self.correct, "total": total, "accuracy": accuracy, "average_seconds": average if average != float("inf") else None}
+            record_session("curriculum", self.correct)
             self.stats = save_curriculum(next_topic.id, mastered_topics, records)
             self.result = {"curriculum": True, "mastered": mastered, "next_topic": next_topic.title, "complete": mastered and topic_index + 1 >= len(CURRICULUM), "score": self.correct}
             self._stop_session(); self.screen = "results"; self._render(); return
